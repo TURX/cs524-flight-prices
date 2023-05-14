@@ -1,3 +1,6 @@
+# import os
+# os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data3"))
+
 import glob
 import json
 import csv
@@ -13,7 +16,7 @@ csv_header = None
 
 csv_name = 'itineraries.csv'
 
-with open(csv_name, 'a', newline = '') as csv_file:
+with open(csv_name, 'w', newline = '') as csv_file:
     for iteration_number, file in enumerate(tqdm.tqdm(filenames)):
         try:
             with open(file, 'r') as f:
@@ -31,7 +34,7 @@ with open(csv_name, 'a', newline = '') as csv_file:
             except KeyError:
                 pass
             assert fare_info['currency'] == 'USD', "currency is not 'USD'"
-            searchDate, flightDate, basename = file.split('\\')
+            searchDate, flightDate, basename = file.split('/')
             startingAirport, _, destinationAirport = basename.split('.')[0].split('_')
             entry = {
                 'legId': flight_info['legId'],
@@ -47,7 +50,7 @@ with open(csv_name, 'a', newline = '') as csv_file:
                 'isNonStop': flight_info['isNonStop'],
                 'baseFare': fare_info['baseFare'],
                 'totalFare': fare_info['totalFare'],
-                'seatsRemaining': fare_info['seatsRemaining']
+                'seatsRemaining': fare_info['seatsRemaining'],
             }
             try:
                 entry['totalTravelDistance'] = flight_info['totalTravelDistance']
@@ -62,10 +65,12 @@ with open(csv_name, 'a', newline = '') as csv_file:
             departureAirportCode = []
             airlineName = []
             airlineCode = []
+            flightNumber = []
             equipmentDescription = []
             durationInSeconds = []
             distance = []
             cabinCode = []
+            meal = []
             for segment, segment_attributes in zip(flight_info['segments'], fare_info['segmentAttributes'][0]):
                 departureTimeEpochSeconds.append(segment['departureTimeEpochSeconds'])
                 departureTimeRaw.append(segment['departureTimeRaw'])
@@ -75,6 +80,7 @@ with open(csv_name, 'a', newline = '') as csv_file:
                 departureAirportCode.append(segment['departureAirportCode'])
                 airlineName.append(segment['airlineName'])
                 airlineCode.append(segment['airlineCode'])
+                flightNumber.append(segment['flightNumber'])
                 equipmentDescription.append(segment['equipmentDescription'])
                 durationInSeconds.append(segment['durationInSeconds'])
                 try:
@@ -82,6 +88,10 @@ with open(csv_name, 'a', newline = '') as csv_file:
                 except KeyError:
                     distance.append(None)
                 cabinCode.append(segment_attributes['cabinCode'])
+                try:
+                    meal.append(segment['meal'])
+                except KeyError:
+                    meal.append(None)
             entry['segmentsDepartureTimeEpochSeconds'] = '||'.join(map(str, departureTimeEpochSeconds))
             entry['segmentsDepartureTimeRaw'] = '||'.join(map(str, departureTimeRaw))
             entry['segmentsArrivalTimeEpochSeconds'] = '||'.join(map(str, arrivalTimeEpochSeconds))
@@ -90,10 +100,12 @@ with open(csv_name, 'a', newline = '') as csv_file:
             entry['segmentsDepartureAirportCode'] = '||'.join(map(str, departureAirportCode))
             entry['segmentsAirlineName'] = '||'.join(map(str, airlineName))
             entry['segmentsAirlineCode'] = '||'.join(map(str, airlineCode))
+            entry['segmentsFlightNumber'] = '||'.join(map(str, flightNumber))
             entry['segmentsEquipmentDescription'] = '||'.join(map(str, equipmentDescription))
             entry['segmentsDurationInSeconds'] = '||'.join(map(str, durationInSeconds))
             entry['segmentsDistance'] = '||'.join(map(str, distance))
             entry['segmentsCabinCode'] = '||'.join(map(str, cabinCode))
+            entry['segmentsMeal'] = '||'.join(map(str, meal))
             if csv_header is None:
                 csv_header = list(entry.keys())
                 csv_writer = csv.DictWriter(csv_file, csv_header)
@@ -101,20 +113,3 @@ with open(csv_name, 'a', newline = '') as csv_file:
             else:
                 csv_writer = csv.DictWriter(csv_file, csv_header)
             csv_writer.writerow(entry)
-
-chunksize = 1000
-csv_stream = pd.read_csv(csv_name, chunksize = chunksize)
-chunk = next(csv_stream)
-parquet_schema = pyarrow.Table.from_pandas(df = chunk).schema
-
-parquet_name = 'itineraries_gzip.parquet'
-csv_stream = pd.read_csv(csv_name, chunksize = chunksize, dtype = chunk.dtypes.to_dict())
-with pyarrow.parquet.ParquetWriter(parquet_name, parquet_schema, compression = 'GZIP') as parquet_writer:
-    for chunk in tqdm.tqdm(csv_stream):
-        parquet_writer.write_table(pyarrow.Table.from_pandas(chunk, schema = parquet_schema))
-
-parquet_name = 'itineraries_snappy.parquet'
-csv_stream = pd.read_csv(csv_name, chunksize = chunksize, dtype = chunk.dtypes.to_dict())
-with pyarrow.parquet.ParquetWriter(parquet_name, parquet_schema, compression = 'SNAPPY') as parquet_writer:
-    for chunk in tqdm.tqdm(csv_stream):
-        parquet_writer.write_table(pyarrow.Table.from_pandas(chunk, schema = parquet_schema))
